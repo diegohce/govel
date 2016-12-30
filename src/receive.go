@@ -42,9 +42,9 @@ func main() {
 	forever := make(chan bool)
 
 	go func() {
-	  for d := range msgs {
-		log.Printf("Received a message: %s with RK %s", d.Body, d.RoutingKey)
-	  }
+		for d := range msgs {
+			log.Printf("Received a message: %s with RK %s", d.Body, d.RoutingKey)
+		}
 	}()
 
 	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
