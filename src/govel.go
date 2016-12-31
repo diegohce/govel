@@ -195,7 +195,7 @@ func main() {
 
 
 	log.Println("Starting consume process")
-	rabbit_a.Consume( rabbit_b )
+	err = rabbit_a.Consume( rabbit_b )
 	if err != nil {
 		log.Fatalln(err)
 	}
