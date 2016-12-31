@@ -1,0 +1,7 @@
+
+
+. ./goenv.sh
+go get github.com/streadway/amqp
+go build goenv.go
+
+
