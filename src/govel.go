@@ -1,20 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"os"
 	"log"
 	"time"
+	"flag"
 
 	"github.com/streadway/amqp"
 )
 
 
 type Rabbit struct {
-	username string
-	password string
-	host     string
-	port     string
-	vhost    string
+	url      string
 	conn     *amqp.Connection
 	ch       *amqp.Channel
 	err_chan chan *amqp.Error
@@ -33,33 +30,14 @@ type RabbitB struct {
 
 
 
-func NewRabbit(username, password, host, port, vhost string) (*Rabbit, error) {
+func NewRabbit(url string) (*Rabbit, error) {
 
-	rabbit := &Rabbit{ username: username,
-                      password: password,
-                      host    : host,
-                      port    : port,
-                      vhost   : vhost}
+	rabbit := &Rabbit{ url: url }
 
-	err := rabbit.Setup()
+/*	err := rabbit.Setup()
 	if err != nil {
 		return nil, err
-	}
-
-	rabbit.err_chan = make(chan *amqp.Error)
-
-	rabbit.err_chan = rabbit.conn.NotifyClose(rabbit.err_chan)
-
-	go func(){
-		for e := range rabbit.err_chan {
-			log.Println(e)
-			rabbit.ch.Close()
-			rabbit.conn.Close()
-			rabbit.conn = nil
-			rabbit.ch = nil
-		}
-	}()
-
+	}*/
 
 	return rabbit, nil
 }
@@ -70,8 +48,8 @@ func (r *Rabbit) Setup() error {
 	var err error
 
 	if r.conn == nil {
-		url := fmt.Sprintf("amqp://%s:%s@%s:%s%s", r.username, r.password, r.host, r.port, r.vhost)
-		r.conn, err = amqp.Dial(url)
+		log.Println("Connecting to", r.url)
+		r.conn, err = amqp.Dial(r.url)
 		if err != nil {
 			return  err
 		}
@@ -81,9 +59,27 @@ func (r *Rabbit) Setup() error {
 		r.ch, err = r.conn.Channel()
 		if err != nil {
 			r.conn.Close()
+			r.conn = nil
 			return err
 		}
 	}
+
+	r.err_chan = make(chan *amqp.Error)
+	r.err_chan = r.conn.NotifyClose(r.err_chan)
+
+	go func(){
+		for e := range r.err_chan {
+			log.Println(e)
+			if r.ch != nil {
+				r.ch.Close()
+			}
+			if r.conn != nil {
+				r.conn.Close()
+			}
+			r.conn = nil
+			r.ch = nil
+		}
+	}()
 
 	return nil
 }
@@ -132,7 +128,7 @@ func (ra *RabbitA) Consume(rabbitB *RabbitB)  error {
 	msgs, err := ra.rabbit.ch.Consume(
 	  ra.queue_name, // queue
 	  "govel",     // consumer
-	  true,   // auto-ack
+	  false, //true,   // auto-ack
 	  false,  // exclusive
 	  false,  // no-local
 	  false,  // no-wait
@@ -150,9 +146,11 @@ func (ra *RabbitA) Consume(rabbitB *RabbitB)  error {
 			log.Println("Sending message to side B")
 			err := rabbitB.RePublish(d)
 			if err != nil {
-				log.Println(err, "Failed to register a consumer")
-				d.Nack(false, //multiple
-                       true)  //requeue
+				log.Println(err, "Publishing failed" )
+				//d.Nack(false, //multiple
+                //       true)  //requeue
+			} else {
+				d.Ack(false) //multiple
 			}
 		}
 		log.Println("Exiting consume loop")
@@ -175,23 +173,45 @@ func (ra *RabbitA) Consume(rabbitB *RabbitB)  error {
 
 func main() {
 
+	var from_url string
+	var from_queue string
+	var to_url string
+	var to_exchange string
+
+	fs := flag.NewFlagSet("govel", flag.ExitOnError)
+
+	fs.StringVar(&from_url, "from-url", "", "Source rabbit connection url (amqp://guest:guest@rabbitmq-server-A:5672/)")
+	fs.StringVar(&from_queue, "from-queue", "", "Queue to read messages from")
+	fs.StringVar(&to_url, "to-url", "", "Target rabbit connection url (amqp://guest:guest@rabbitmq-server-B:5672/)")
+	fs.StringVar(&to_exchange, "to-exchange", "", "Exchange to write messages to")
+
+
+	if len(os.Args[1:]) == 0 {
+		 os.Args = append(os.Args, "--help")
+	}
+
+	err := fs.Parse(os.Args[1:])
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	log.Println("Connecting to rabbit_from")
-	rabbit_from, err := NewRabbit("guest", "guest", "10.0.3.10", "5672", "/")
+	rabbit_from, err := NewRabbit(from_url)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	log.Println("Connecting to rabbit_to")
-	rabbit_to, err := NewRabbit("guest", "guest", "10.0.3.11", "5672", "/")
+	rabbit_to, err := NewRabbit(to_url)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	log.Println("Creating side A")
-	rabbit_a := NewRabbitA(rabbit_from, "Q_test")
+	rabbit_a := NewRabbitA(rabbit_from, from_queue)
 
 	log.Println("Creating side B")
-	rabbit_b := NewRabbitB(rabbit_to, "E_test")
+	rabbit_b := NewRabbitB(rabbit_to, to_exchange)
 
 
 	log.Println("Starting consume process")
