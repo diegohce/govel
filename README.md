@@ -29,7 +29,6 @@ Govel is an **experiment** to build a [rabbitmq shovel](https://www.rabbitmq.com
 
 
 ```bash
-. ./goenv.sh
 go get github.com/streadway/amqp
 go build govel.go
 ```
